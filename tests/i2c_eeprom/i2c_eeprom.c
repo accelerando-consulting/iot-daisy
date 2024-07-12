@@ -268,7 +268,7 @@ int main(void)
     GPIO_Config(RKEY_PORT, RKEY_PIN, GPIO_Mode_IPU);
 
     printf("= I2C Config\n");
-    I2C_Config(0x10000, 0x50);
+    I2C_Config(100000, 0x50);
 
     int loops=0;
     // Wait for bus idle
