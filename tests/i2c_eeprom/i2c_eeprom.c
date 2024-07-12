@@ -2,8 +2,11 @@
 #include <ch32v00x_i2c.h>
 #include <ch32v00x_rcc.h>
 
-#define KEY_PORT GPIOC
-#define KEY_PIN GPIO_Pin_0
+#define WKEY_PORT GPIOC
+#define WKEY_PIN GPIO_Pin_0
+
+#define RKEY_PORT GPIOD
+#define RKEY_PIN GPIO_Pin_0
 
 #define I2C_PORT GPIOC
 #define SDA_PIN  GPIO_Pin_1
@@ -14,7 +17,7 @@ u8 address_size = 2;
 
 int timeout_idle=100;
 int timeout_start=100;
-int timeout_addr_ack=500;
+int timeout_addr_ack=5000;
 int timeout_data_write=500;
 int timeout_read_data_ready=5000;
 int timeout_stop=500;
@@ -78,7 +81,9 @@ void I2C_Config(u32 bound, u16 address)
 
 void AT24CXX_WriteOneByte(u16 WriteAddr, u8 DataToWrite)
 {
-    printf("%s 0x%04x <= 0x%02x '%c'\n", __func__, (int)WriteAddr, (int)DataToWrite, DataToWrite);
+    //printf("%s 0x%04x <= 0x%02x '%c'\n", __func__, (int)WriteAddr, (int)DataToWrite, DataToWrite);
+    // turn auto-ack back on
+    I2C_AcknowledgeConfig(I2C1, ENABLE);
 
     do {
 	// wait for bus idle
@@ -123,8 +128,10 @@ void AT24CXX_WriteOneByte(u16 WriteAddr, u8 DataToWrite)
 u8 AT24CXX_ReadOneByte(u16 ReadAddr)
 {
     int temp=-1;
-    printf("  %s @ 0x%04x <= ", __func__, (int)ReadAddr);
+    //printf("  %s @ 0x%04x <= ", __func__, (int)ReadAddr);
 
+    // turn auto-ack back on
+    I2C_AcknowledgeConfig(I2C1, ENABLE);
 
     do {
 	// Wait for bus to be idle
@@ -152,15 +159,20 @@ u8 AT24CXX_ReadOneByte(u16 ReadAddr)
 	I2C_GenerateSTART(I2C1, ENABLE);
 	WAITFOR(I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT), timeout_start, "second start sent");
 
+
+	// Disable auto ack (tell the device we want only one byte)
+	// (Do this before sending the address because logic capture shows the
+	// device may spam us with two or more bytes until we stop ACKing)
+	I2C_AcknowledgeConfig(I2C1, DISABLE);
+
 	// Send device ID again, but read mode
 	I2C_Send7bitAddress(I2C1, (dev_addr<<1), I2C_Direction_Receiver);
 	WAITFOR(I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED), timeout_addr_ack, "address ack");
 
+
 	// Wait for data ready condition
 	WAITFOR(I2C_GetFlagStatus(I2C1, I2C_FLAG_RXNE), timeout_read_data_ready, "data ready");
 
-	// Disable auto ack (tell the device this is the final byte we want)
-	I2C_AcknowledgeConfig(I2C1, DISABLE);
 
 	// Read the byte
 	temp = I2C_ReceiveData(I2C1);
@@ -172,11 +184,8 @@ u8 AT24CXX_ReadOneByte(u16 ReadAddr)
 	WAITFOR(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY) == RESET, timeout_stop, "stop");
     } while (0);
 
-    // turn auto-ack back on
-    I2C_AcknowledgeConfig(I2C1, ENABLE);
-
     if (temp >= 0) {
-	printf(" 0x%02x '%c'\n", temp, temp);
+	//printf(" 0x%02x '%c'\n", temp, temp);
     }
     else {
 	temp=0;
@@ -204,6 +213,7 @@ void AT24CXX_Read(u16 ReadAddr, u8 *pBuffer, u16 NumToRead)
     {
         *pBuffer++=AT24CXX_ReadOneByte(ReadAddr++);
         NumToRead--;
+        Delay_Us(100); // give the scope trace a bit of margin
     }
 }
 
@@ -225,13 +235,14 @@ void AT24CXX_Write(u16 WriteAddr, u8 *pBuffer, u16 NumToWrite)
         AT24CXX_WriteOneByte(WriteAddr, *pBuffer);
         WriteAddr++;
         pBuffer++;
-        Delay_Us(100);
+        Delay_Ms(2); // writing to eeprom is rather slow!
     }
 }
 
 int main(void)
 {
-    u16 pos = 100;
+    u16 initial_pos = 100;
+    u16 pos = initial_pos;
     u8 data[33]="DEADBEAFDEADBEEFDEADBEEFDEADBEEF";
     char payload[]="Hello, World!";
     int len = 0;
@@ -252,7 +263,9 @@ int main(void)
 
     printf("= GPIO Config\n");
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
-    GPIO_Config(KEY_PORT, KEY_PIN, GPIO_Mode_IPU);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD, ENABLE);
+    GPIO_Config(WKEY_PORT, WKEY_PIN, GPIO_Mode_IPU);
+    GPIO_Config(RKEY_PORT, RKEY_PIN, GPIO_Mode_IPU);
 
     printf("= I2C Config\n");
     I2C_Config(0x10000, 0x50);
@@ -262,28 +275,43 @@ int main(void)
     while (1) {
 	char scl = GPIO_ReadInputDataBit(I2C_PORT, SCL_PIN)?'C':'c';
 	char sda = GPIO_ReadInputDataBit(I2C_PORT, SDA_PIN)?'D':'d';
-	printf("= Wait for key PC0 (loop %d, %c%c)\n", ++loops, scl, sda);
-	while (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN));
+	printf("= Wait for key PC0=rd PC1=wr (loop %d, %c%c)\n", ++loops, scl, sda);
+	int r = 1;
+	int w = 1;
+
+	while ((r=GPIO_ReadInputDataBit(WKEY_PORT, WKEY_PIN)) &&
+	       (w=GPIO_ReadInputDataBit(RKEY_PORT, RKEY_PIN))
+	    ); // wait for one of the two command buttons to be pressed
 	Delay_Ms(100);
-	while (!GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN)); // wait for release
+	while (!GPIO_ReadInputDataBit(WKEY_PORT, WKEY_PIN) &&
+	       !GPIO_ReadInputDataBit(RKEY_PORT, RKEY_PIN)
+	    ); // wait for release of all buttons
 
 
-	printf("Wait for bus idle\n");
+	printf("  wait for bus idle\n");
 	do {
 	    WAITFOR(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY) == RESET, timeout_idle, "bus idle");
 
-	    printf("\nAT24CXX_Write %d:[%s] @ 0x%04X\n", write_len, payload, (int)pos);
-	    AT24CXX_Write(pos, (u8*)payload, write_len);
-	    Delay_Ms(500);
+	    if (w == 0) {
+		// write button was pressed
+		printf("\nAT24CXX_Write %d:[%s] @ 0x%04X\n", write_len, payload, (int)pos);
+		AT24CXX_Write(pos, (u8*)payload, write_len);
+		Delay_Ms(10);
+	    }
 
-	    printf("\nAT24CXX_Read %d @ 0x%04x\n", read_len, (int)pos);
-	    AT24CXX_Read(pos, (u8*)data, read_len);
-	    data[read_len+8] = '\0';// deliberate overrun into deadbeef
-    
-	    printf("result  %s\n", data);
+
+	    if (r == 0) {
+		// read button was pressed
+		printf("\nAT24CXX_Read %d @ 0x%04x\n", read_len, (int)pos);
+		AT24CXX_Read(pos, (u8*)data, read_len);
+
+		data[read_len] = '\0';
+		printf("  result: %s\n", data);
+	    }
+	    
 	} while (0);
 	printf("\n\n");
-	++pos;
+	++pos; // operate one char further in next time
 
     }
 }
