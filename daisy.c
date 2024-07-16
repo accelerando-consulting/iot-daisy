@@ -131,3 +131,8 @@ void HardFault_Handler(void)
 	{
 	}
 }
+
+// Local Variables:
+// mode: C
+// c-basic-offset: 4
+// End:
