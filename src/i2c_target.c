@@ -12,6 +12,7 @@
 #include <ch32v00x_i2c.h>
 #include <ch32v00x_rcc.h>
 
+#include "config.h"
 #include "i2c_target.h"
 
 /*@****************************** Constants *********************************/
@@ -54,13 +55,13 @@ u16 reg_value = 0;
 	for (waited=0; (waited < (timeout)) && !(cond); waited++);	\
 	if (waited >= (timeout)) {					\
 	    if (message && (message[0] != '@')) {			\
-		printf("** TIMEOUT (%d) for %s\n", waited, (message));	\
+		LOG("** TIMEOUT (%d) for %s\n", waited, (message));	\
 	    }								\
 	    break;							\
 	}								\
 	if ((waited >= (timeout/2)) &&					\
 	    (message && (message[0] != '@'))) {				\
-	    printf("  waited %dx for %s\n", waited, (message));		\
+	    LOG("  waited %dx for %s\n", waited, (message));		\
 	}								\
     }
 	
@@ -111,7 +112,7 @@ extern void GPIO_Config(GPIO_TypeDef *port, uint16_t pin, GPIOMode_TypeDef mode)
  */
 void I2C_Config(u32 busfreq, u8 device_address, reg_write_cb_t write_cb, reg_read_cb_t read_cb)
 {
-    printf("> %s %luHz 0x%02x\n", __func__, busfreq, (int)device_address);
+    LOG("> %s %luHz 0x%02x\n", __func__, busfreq, (int)device_address);
     I2C_InitTypeDef  I2C_InitTStructure = {0};
 
     _reg_write_cb = write_cb;
@@ -152,15 +153,15 @@ void I2C_Config(u32 busfreq, u8 device_address, reg_write_cb_t write_cb, reg_rea
     I2C_Cmd(I2C1, ENABLE);
     I2C_AcknowledgeConfig(I2C1, ENABLE); // auto ack our target address
 
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
 }
 
 #if 0
 static void print_event(const char *msg, uint32_t event) 
 {
-    printf("%s 0x%08lx", msg, event);
+    LOG("%s 0x%08lx", msg, event);
 #if 0
-#define ISIT(f) if (event & I2C_IT_##f) printf(" i%s", #f)    
+#define ISIT(f) if (event & I2C_IT_##f) LOG(" i%s", #f)    
     ISIT(PECERR);
     ISIT(OVR);
     ISIT(AF);
@@ -174,7 +175,7 @@ static void print_event(const char *msg, uint32_t event)
     ISIT(ADDR);
     ISIT(SB);
 #endif
-#define ISFLAG(f) if (event & I2C_FLAG_##f) printf(" %s", #f)    
+#define ISFLAG(f) if (event & I2C_FLAG_##f) LOG(" %s", #f)    
     ISFLAG(DUALF);
     ISFLAG(GENCALL);
     ISFLAG(TRA);
@@ -191,14 +192,14 @@ static void print_event(const char *msg, uint32_t event)
     ISFLAG(BTF);
     ISFLAG(ADDR);
     ISFLAG(SB);
-    printf("\n");
+    LOG("\n");
 }
 #endif
 
 /*@@-------------------------- i2c_handle_read -----------------------------*/
 static void i2c_handle_read(uint32_t event) 
 {
-    //printf("< %s(%08lx)\n", __func__, event);
+    //LOG("< %s(%08lx)\n", __func__, event);
     // Process a read transaction
     u8 ready = 1;
     uint32_t event_was=0;
@@ -224,7 +225,7 @@ static void i2c_handle_read(uint32_t event)
 
 	if (event & I2C_FLAG_AF) {
 	    // byte was not acked, stop transmitting
-	    //printf("  %s received NAK bytes_sent=%d\n", __func__, bytes_sent);
+	    //LOG("  %s received NAK bytes_sent=%d\n", __func__, bytes_sent);
 	    I2C_ClearFlag(I2C1, I2C_FLAG_AF);
 	    break;
 	}
@@ -237,23 +238,23 @@ static void i2c_handle_read(uint32_t event)
 		b = (reg_value>>8)&0xFF;
 	    }
 	    else {
-		printf("ERR i2c read underflow");
+		LOG("ERR i2c read underflow");
 		b=0;
 	    }
-	    //printf("  %s transmit byte @0x%04x 0x%02x (%d) '%c'\n", __func__, (int)reg_addr, (int)b, (int)b,((b>=' ') && (b<='~'))?b:'?');
+	    //LOG("  %s transmit byte @0x%04x 0x%02x (%d) '%c'\n", __func__, (int)reg_addr, (int)b, (int)b,((b>=' ') && (b<='~'))?b:'?');
 	    I2C_SendData(I2C1, b);
 	    bytes_sent++;
 	}
 
 #if 0
 	if (I2C_CheckEvent(I2C1, I2C_EVENT_SLAVE_STOP_DETECTED)) {
-	    printf("  %s received STOP\n", __func__);
+	    LOG("  %s received STOP\n", __func__);
 	    break;
 	}
 	else
 #endif
         if (I2C_CheckEvent(I2C1, I2C_EVENT_SLAVE_BYTE_TRANSMITTED)) {
-	    //printf("  %s BTF\n", __func__);
+	    //LOG("  %s BTF\n", __func__);
 	    I2C_ClearFlag(I2C1, I2C_FLAG_TXE);
 	    ready = 1;
 	}
@@ -273,7 +274,7 @@ static void i2c_handle_read(uint32_t event)
 // @brief Process a write transaction
 static void i2c_handle_write(uint32_t event) 
 {
-    //printf("< %s(0x%08lx)\n", __func__, event);
+    //LOG("< %s(0x%08lx)\n", __func__, event);
 
     int byte_count = 0;
     int data_count = 0;
@@ -292,7 +293,7 @@ static void i2c_handle_write(uint32_t event)
 #endif
 	
 	if (!event) event = I2C_GetLastEvent(I2C1);
-	//printf("  %2d ", byte_count);
+	//LOG("  %2d ", byte_count);
 	//print_event("EVENT ", event);
 	handled = 0;
 
@@ -301,26 +302,26 @@ static void i2c_handle_write(uint32_t event)
 	    
 	    u8 b = I2C_ReceiveData(I2C1);
 	    //if (byte_count < recv_max) recv_buf[byte_count]=b;
-	    //printf("  %2d RCVD 0x%02x (%d) '%c'\n", byte_count, (int)b, (int)b,((b>=' ') && (b<='~'))?b:'?');
+	    //LOG("  %2d RCVD 0x%02x (%d) '%c'\n", byte_count, (int)b, (int)b,((b>=' ') && (b<='~'))?b:'?');
 	    if ((address_size == 2) && (byte_count == 0)) {
 		// high byte of memory address
 		reg_addr &= 0x00FF;
 		reg_addr |= (b<<8);
-		printf("  %2d AMSB reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
+		LOG("  %2d AMSB reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
 	    }
 	    else if ((address_size==2) && (byte_count == 1)) {
 		// low byte of memory address
 		reg_addr &= 0xFF00;
 		reg_addr |= (b&0xFF);
-		printf("  %2d ALSB reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
+		LOG("  %2d ALSB reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
 	    }
 	    else if ((address_size==1) && (byte_count == 0)) {
 		reg_addr = b;
-		//printf("  %2d ADDR reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
+		//LOG("  %2d ADDR reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
 	    }
 	    else {
 		// Subsequent bytes, pass to write callback
-		//printf("  %2d DATA reg_addr=0x%04x\n", (int)byte_count, reg_addr);
+		//LOG("  %2d DATA reg_addr=0x%04x\n", (int)byte_count, reg_addr);
 		if (data_count == 0) {
 		    reg_value = b;
 		}
@@ -328,7 +329,7 @@ static void i2c_handle_write(uint32_t event)
 		    reg_value |= (b<<8);
 		}
 		else {
-		    printf("ERR i2c write overflow");
+		    LOG("ERR i2c write overflow");
 		}
 		++data_count;
 	    }
@@ -345,7 +346,7 @@ static void i2c_handle_write(uint32_t event)
 
 	if ((event & I2C_FLAG_STOPF) && !(event & I2C_FLAG_BUSY)) {
 	    //else if (I2C_CheckEvent(I2C1, I2C_EVENT_SLAVE_STOP_DETECTED)) {
-	    //printf("  %2d STOP reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
+	    //LOG("  %2d STOP reg_addr=0x%04x\n", (int)byte_count, (int)reg_addr);
 	    I2C_ClearFlag(I2C1, I2C_FLAG_STOPF);
 	    if (byte_count > 1) {
 		// don't trigger callback for a zero byte write (often used for bus probing)
@@ -353,7 +354,7 @@ static void i2c_handle_write(uint32_t event)
 	    }
 	    else if(!done) {
 		// a no-op write happened (no read)
-		//printf("Acknowledge I2C bus probe\n");
+		//LOG("Acknowledge I2C bus probe\n");
 	    }
 	    
 	    handled++;

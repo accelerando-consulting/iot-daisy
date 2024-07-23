@@ -113,20 +113,20 @@ u16 reg[REG_COUNT];
 u16 i2c_reg_read(u16 reg_addr) 
 {
     if (reg_addr >= REG_COUNT) {
-	printf("ERR %s invalid reg_addr 0x%04x\n", __func__, (int)reg_addr);
+	LOG("ERR %s invalid reg_addr 0x%04x\n", __func__, (int)reg_addr);
 	return 0;
     }
-    printf("%s 0x%04x <= 0x%04x (%s)\n", __func__, (int)reg_addr, reg[reg_addr], reg_name[reg_addr]);
+    LOG("%s 0x%04x <= 0x%04x (%s)\n", __func__, (int)reg_addr, reg[reg_addr], reg_name[reg_addr]);
     return reg[reg_addr];
 }
 
 
 void i2c_reg_write(u16 reg_addr, u16 reg_data)
 {
-    printf("%s 0x%04x <= 0x%04x (%s)\n", __func__, (int)reg_addr, (int)reg_data,
+    LOG("%s 0x%04x <= 0x%04x (%s)\n", __func__, (int)reg_addr, (int)reg_data,
 	   (reg_addr < REG_COUNT)?reg_name[reg_addr]:"INVALID");
     if (reg_addr >= REG_COUNT) {
-	printf("ERR %s invalid reg_addr 0x%04x\n", __func__, (int)reg_addr);
+	LOG("ERR %s invalid reg_addr 0x%04x\n", __func__, (int)reg_addr);
 	return;
     }
     u8 err_ro=0;
@@ -171,7 +171,7 @@ void i2c_reg_write(u16 reg_addr, u16 reg_data)
 	break;
     }
     if (err_ro) {
-	printf("ERR %s write attempt to readonly reg_addr 0x%04x\n", __func__, (int)reg_addr);
+	LOG("ERR %s write attempt to readonly reg_addr 0x%04x\n", __func__, (int)reg_addr);
     }
 }
 
@@ -209,34 +209,34 @@ void GPIO_Config(GPIO_TypeDef *port, uint16_t pin, GPIOMode_TypeDef mode)
 
 void update_tone() 
 {
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
     tone_period = 1000000/REG(FREQ);
     tone_cycles = REG(DURATION)*1000/tone_period;
-    printf("  %s freq=%dHz tone_period=%lu duration=%dms tone_cycles=%lu\n",
+    LOG("  %s freq=%dHz tone_period=%lu duration=%dms tone_cycles=%lu\n",
 	   __func__, REG_INT(FREQ), tone_period, REG_INT(DURATION), tone_cycles);
 }
 
 void start_tone() 
 {
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
     tone_cycles_remaining = tone_cycles;
 }
 
 void stop_tone() 
 {
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
     tone_cycles_remaining = 0;
 }
 
 void winky_loop(void) 
 {
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
     unsigned int cycle = 0;
 
     while (1)
     {
 	++cycle;
-	printf("%-8u\n", cycle);
+	LOG("%-8u\n", cycle);
 	if ((cycle % 2)==0) {
 	    GPIO_WriteBit(LED_PORT, LED_PIN, 1);
 	    GPIO_WriteBit(SPK_PORT, SPK_PIN, 0);
@@ -256,24 +256,24 @@ void winky_loop(void)
 
 void spkr_test(void) 
 {
-    printf("< %s\n", __func__);
+	//LOG("< %s\n", __func__);
+    GPIO_WriteBit(LED_PORT, LED_PIN, 1);
     for (int cycle=1;cycle<100;cycle++)
     {
 	GPIO_WriteBit(SPK_PORT, SPK_PIN, cycle%2);
 	Delay_Us(500);
     }
+    GPIO_WriteBit(LED_PORT, LED_PIN, 0);
     Delay_Ms(100);
-    for (int cycle=1;cycle<100;cycle++)
-    {
-	GPIO_WriteBit(SPK_PORT, SPK_PIN, cycle%2);
-	Delay_Us(500);
-    }
+    GPIO_WriteBit(LED_PORT, LED_PIN, 1);
+    Delay_Ms(200);
+    GPIO_WriteBit(LED_PORT, LED_PIN, 0);
     Delay_Ms(250);
 }
 
 void spkr_loop() 
 {
-    printf("< %s\n", __func__);
+    LOG("< %s\n", __func__);
     update_tone();
     unsigned long loops=0;
     
@@ -288,7 +288,7 @@ void spkr_loop()
 	    --tone_cycles_remaining;
 	}
 	else {
-	    GPIO_WriteBit(LED_PORT, LED_PIN, ((loops++)<1));
+	    GPIO_WriteBit(LED_PORT, LED_PIN, ((loops++)<10));
 	    if (loops>=1000) loops=0;
 	    Delay_Ms(1);
 	}
@@ -337,16 +337,15 @@ void TIM1_PWMOut(u16 arr, u16 psc, u16 ccp)
 int main(void)
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
-#if (SDI_PRINT == SDI_PR_OPEN)
+    Delay_Init();
+#if SDI_PRINT
     SDI_Printf_Enable();
-    Delay_Ms(1000);
+#elif DEBUG
+    #error uart
+    USART_LOG_Init( 115200 );
 #else
-    USART_Printf_Init( 115200 );
+    // no logging
 #endif
-    printf( "\n\n");
-    printf( "= Accelerando Daisy I2C Chiptune =\n\n");
-    printf( "  SystemClk:%dHz\n", (int)SystemCoreClock );
-
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA|RCC_APB2Periph_GPIOC|RCC_APB2Periph_GPIOD, ENABLE);
     GPIO_PinRemapConfig(GPIO_Remap_PA1_2, ENABLE);
@@ -360,13 +359,16 @@ int main(void)
     GPIO_Config(SPK_PORT, SPK_PIN, GPIO_Mode_Out_PP);
     GPIO_WriteBit(SPK_PORT, SPK_PIN, 0);
 
+    Delay_Ms(100);
+    //LOG( "\n\n");
+    //LOG( "= Accelerando Daisy I2C Chiptune =\n\n");
+    //LOG( "  SystemClk:%dHz\n", (int)SystemCoreClock );
 
     /* 
      * Initialise default state
      */
 
     i2c_init();
-
 
     spkr_test();
     //winky_loop();
